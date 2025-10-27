@@ -5,128 +5,132 @@ import time
 from urllib.parse import urljoin
 import re
 import json
+import random
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from . import config
 
-def parse_data_from_script(soup, page_url):
-    """
-    Извлекает данные о погоде напрямую из JavaScript переменной 'mart.forecastMap' на странице.
-    Это самый надежный метод.
-    """
+MONTHS_RU = {
+    1: 'января', 2: 'февраля', 3: 'марта', 4: 'апреля', 5: 'мая', 6: 'июня',
+    7: 'июля', 8: 'августа', 9: 'сентября', 10: 'октября', 11: 'ноября', 12: 'декабря'
+}
+
+def generate_url_list():
+    urls = []
+    date_range = pd.date_range(start=config.SCRAPE_START_DATE, end=config.SCRAPE_END_DATE)
+    for date in date_range:
+        day, month_name, year = date.day, MONTHS_RU[date.month], date.year
+        urls.append(urljoin(config.BASE_URL, f"/{day}-{month_name}#{year}"))
+    print(f"Сгенерировано {len(urls)} URL для скрапинга.")
+    return urls
+
+def parse_data_from_js(soup, page_url):
+    """Извлекает ВСЕ числовые данные ИСКЛЮЧИТЕЛЬНО из JS-объекта 'mart.forecastMap'."""
     records = []
+    script_tag = soup.find('script', string=re.compile(r"mart\.forecastMap\.set"))
+    if not script_tag: return []
     
-    # 1. Находим тег <script>, содержащий нужные нам данные
-    script_tag = soup.find('script', text=re.compile(r"mart\.forecastMap\.set"))
-    if not script_tag:
-        print("Не найден <script> с данными 'mart.forecastMap'.")
-        return []
-
-    # 2. Извлекаем год из URL, чтобы знать, какие данные искать
     year_match = re.search(r'#(\d{4})', page_url)
-    if not year_match:
-        return []
+    if not year_match: return []
     year = year_match.group(1)
-
-    # 3. Используем регулярное выражение для извлечения списка данных для нужного года
+    
     data_match = re.search(r"mart\.forecastMap\.set\('" + year + r"',\s*(\[\[.*?\]\])\);", script_tag.string)
-    if not data_match:
-        print(f"Не найдены данные для года {year} в <script>.")
-        return []
+    if not data_match: return []
 
-    # 4. Преобразуем найденную строку в Python-список
-    try:
-        data_list = json.loads(data_match.group(1))
-    except json.JSONDecodeError:
-        print(f"Ошибка декодирования JSON для года {year}.")
-        return []
+    try: data_list = json.loads(data_match.group(1))
+    except json.JSONDecodeError: return []
         
-    # 5. Преобразуем список в нужный нам формат (DataFrame)
-    # Формат данных: [timestamp_ms, temp, pressure, wind_speed, ...]
     for item in data_list:
-        if len(item) < 4: continue # Проверка на корректность записи
-        
+        # Убедимся, что в записи достаточно данных
+        if len(item) < 7: continue
         records.append({
-            # item[0] - это timestamp в миллисекундах
-            'datetime': pd.to_datetime(item[0], unit='ms'),
+            'datetime': pd.to_datetime(item[0], unit='s'),
             'temperature': item[1],
             'pressure': item[2],
             'wind_speed': item[3],
+            'wind_direction_deg': item[4], # Направление ветра в градусах
+            'cloud_cover_percent': item[6] # Облачность в процентах
         })
-        
+            
     return records
 
-def run_full_scrape():
-    """Запускает полный цикл скрапинга, пока не дойдет до последней страницы."""
-    all_records = []
-    current_url = urljoin(config.BASE_URL, config.START_URL_PATH)
-    
-    page_count = 0
-    while current_url:
-        page_count += 1
-        print(f"[{page_count}] Скрапинг страницы: {current_url}")
-        
+def scrape_url(url):
+    time.sleep(config.REQUEST_DELAY * random.uniform(0.5, 1.5))
+    for attempt in range(config.MAX_RETRIES):
         try:
-            response = requests.get(current_url, headers=config.HEADERS, timeout=config.REQUEST_TIMEOUT)
+            response = requests.get(url, headers=config.HEADERS, timeout=config.REQUEST_TIMEOUT)
             response.raise_for_status()
-        except requests.RequestException as e:
-            print(f"Ошибка запроса: {e}. Прерывание скрапинга.")
-            break
-            
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Используем нашу новую, надежную функцию парсинга
-        daily_data = parse_data_from_script(soup, current_url)
-        
-        if not daily_data:
-            print("Не удалось извлечь данные. Завершение скрапинга.")
-            break
-        
-        all_records.extend(daily_data)
-        
-        # Поиск ссылки на предыдущую страницу все еще нужен
-        next_page_path_tag = soup.select_one('div.navi a.prev-month')
-        if next_page_path_tag and next_page_path_tag.has_attr('href'):
-            current_url = urljoin(config.BASE_URL, next_page_path_tag['href'])
-        else:
-            print("Не найдена ссылка на предыдущий день. Конец архива.")
-            current_url = None
-        
-        time.sleep(config.REQUEST_DELAY)
-        
-    if not all_records:
-        print("В результате скрапинга не было собрано ни одной записи.")
-        return pd.DataFrame()
+            soup = BeautifulSoup(response.text, 'html.parser')
+            return parse_data_from_js(soup, url)
+        except requests.RequestException:
+            if attempt + 1 == config.MAX_RETRIES:
+                print(f"Не удалось скачать {url} после {config.MAX_RETRIES} попыток.")
+                return None
+            time.sleep(config.BACKOFF_FACTOR * (2 ** attempt))
+    return None
 
+def run_parallel_scrape():
+    urls = generate_url_list()
+    all_records = []
+    with ThreadPoolExecutor(max_workers=config.MAX_WORKERS) as executor:
+        future_to_url = {executor.submit(scrape_url, url): url for url in urls}
+        processed_count = 0
+        total_urls = len(urls)
+        for future in as_completed(future_to_url):
+            processed_count += 1
+            daily_data = future.result()
+            if daily_data:
+                all_records.extend(daily_data)
+            print(f"Обработано {processed_count}/{total_urls} URL. Собрано 'сырых' записей: {len(all_records)}", end='\r')
+    print("\nПараллельный скрапинг завершен.")
+    if not all_records: return pd.DataFrame()
     df = pd.DataFrame(all_records)
-    # Данные могут приходить не по порядку для одного дня, сортируем
-    df = df.sort_values('datetime').drop_duplicates(subset=['datetime']).reset_index(drop=True)
-    return df
+    return df.sort_values('datetime').drop_duplicates(subset=['datetime']).reset_index(drop=True)
 
-# Функция aggregate_data остается без изменений
 def aggregate_data(df_raw: pd.DataFrame):
-    """Агрегирует 3-часовые данные в дневные по периодам: утро, день, вечер."""
-    df = df_raw.copy()
+    """
+    Агрегирует все признаки по периодам дня: утро, день, вечер.
+    """
+    df = df_raw.copy().dropna(subset=['datetime'])
+    if df.empty: return pd.DataFrame()
+
     df['date'] = df['datetime'].dt.date
     df['hour'] = df['datetime'].dt.hour
     
+    # Определяем период для каждой записи
     def get_period(hour):
         for period, hours in config.PERIOD_MAPPING.items():
-            if hour in hours:
-                return period
+            if hour in hours: return period
         return None
-        
     df['period'] = df['hour'].apply(get_period)
-    df = df.dropna(subset=['period'])
     
-    df_temp = df.pivot_table(index='date', columns='period', values='temperature', aggfunc='mean')
-    df_temp.columns = [f'temp_{col}' for col in df_temp.columns]
+    # Отфильтровываем записи, не попавшие в наши периоды (например, ночные)
+    df_filtered = df.dropna(subset=['period'])
+    if df_filtered.empty: return pd.DataFrame()
+
+
+    # Определяем все признаки, которые мы хотим агрегировать
+    features_to_aggregate = [
+        'temperature',
+        'pressure',
+        'wind_speed',
+        'wind_direction_deg',
+        'cloud_cover_percent'
+    ]
+
     
-    df_features = df.groupby('date').agg(
-        pressure_mean=('pressure', 'mean'),
-        wind_speed_mean=('wind_speed', 'mean')
+    df_pivoted = df_filtered.pivot_table(
+        index='date',                 # Группируем по дням
+        columns='period',             # Создаем колонки для 'morning', 'day', 'evening'
+        values=features_to_aggregate, # Применяем ко всем признакам
+        aggfunc='mean'                # Используем среднее для агрегации
     )
     
-    df_final = df_temp.join(df_features).reset_index()
-    df_final['date'] = pd.to_datetime(df_final['date'])
-    df_final = df_final.dropna()
+    # Теперь у нас мульти-индексные колонки (например, ('temperature', 'morning')).
+    # Превратим их в плоские имена ('temperature_morning').
+    df_pivoted.columns = [f'{feature}_{period}' for feature, period in df_pivoted.columns]
     
-    return df_final
+    df_final = df_pivoted.reset_index()
+    df_final['date'] = pd.to_datetime(df_final['date'])
+    
+    # Удаляем строки, если для какого-то дня не нашлось данных для всех периодов
+    return df_final.dropna(how='any')
